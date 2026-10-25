@@ -5,8 +5,8 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - "DON-1500_Map_Converter_Prototype.zip"
-      - ".github/workflows/build.yml"
+      - 'DON-1500_Map_Converter_Prototype.zip'
+      - '.github/workflows/build.yml'
 
 permissions:
   contents: read
@@ -16,45 +16,63 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Download repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Java 17
+      - name: Check ZIP archive
+        run: |
+          set -eu
+          echo "Checking project archive..."
+          find . -maxdepth 2 -type f -name '*.zip' -print
+          ZIP_FILE="DON-1500_Map_Converter_Prototype.zip"
+          if [ ! -f "$ZIP_FILE" ]; then
+            echo "::error::ZIP not found: $ZIP_FILE"
+            echo "Upload the ZIP to the repository root with this exact name."
+            exit 1
+          fi
+          unzip -t "$ZIP_FILE"
+
+      - name: Extract Android project
+        run: |
+          set -eu
+          mkdir -p source
+          unzip -q DON-1500_Map_Converter_Prototype.zip -d source
+          SETTINGS="$(find source -name settings.gradle -o -name settings.gradle.kts | head -n 1)"
+          if [ -z "$SETTINGS" ]; then
+            echo "::error::settings.gradle was not found in the ZIP"
+            find source -maxdepth 4 -type f | head -n 100
+            exit 1
+          fi
+          PROJECT_DIR="$(dirname "$SETTINGS")"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Found project: $PROJECT_DIR"
+          test -f "$PROJECT_DIR/app/build.gradle" -o -f "$PROJECT_DIR/app/build.gradle.kts"
+
+      - name: Set up Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: '17'
 
-      - name: Install Android SDK
+      - name: Set up Android SDK
         uses: android-actions/setup-android@v3
-        with:
-          accept-android-sdk-licenses: true
-          packages: "platform-tools platforms;android-35 build-tools;35.0.0"
 
-      - name: Install Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "8.9"
-
-      - name: Check and extract project
-        shell: bash
+      - name: Build APK
+        working-directory: ${{ env.PROJECT_DIR }}
         run: |
-          set -euo pipefail
-          test -f DON-1500_Map_Converter_Prototype.zip
-          mkdir -p source
-          unzip -q DON-1500_Map_Converter_Prototype.zip -d source
-          test -f source/FS25_FS26_Converter/settings.gradle
-          test -f source/FS25_FS26_Converter/app/build.gradle
-          echo "Project files found."
-
-      - name: Build debug APK
-        working-directory: source/FS25_FS26_Converter
-        run: gradle assembleDebug --no-daemon
+          chmod +x gradlew 2>/dev/null || true
+          if [ -f gradlew ]; then
+            ./gradlew --no-daemon assembleDebug
+          else
+            echo "::error::Gradle wrapper gradlew is missing from the project ZIP"
+            exit 1
+          fi
 
       - name: Upload APK
+        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: DON-1500-Map-Converter-debug
-          path: source/FS25_FS26_Converter/app/build/outputs/apk/debug/*.apk
+          name: DON-1500-Map-Converter-APK
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           
