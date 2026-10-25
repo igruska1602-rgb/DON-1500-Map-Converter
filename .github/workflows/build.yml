@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - 'DON-1500_Map_Converter_Prototype.zip'
+      - '**.zip'
       - '.github/workflows/build.yml'
 
 permissions:
@@ -19,34 +19,44 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Check ZIP archive
+      - name: Find and extract ZIP
+        id: extract
+        shell: bash
         run: |
-          set -eu
-          echo "Checking project archive..."
-          find . -maxdepth 2 -type f -name '*.zip' -print
-          ZIP_FILE="DON-1500_Map_Converter_Prototype.zip"
-          if [ ! -f "$ZIP_FILE" ]; then
-            echo "::error::ZIP not found: $ZIP_FILE"
-            echo "Upload the ZIP to the repository root with this exact name."
-            exit 1
-          fi
-          unzip -t "$ZIP_FILE"
+          set -euo pipefail
 
-      - name: Extract Android project
-        run: |
-          set -eu
-          mkdir -p source
-          unzip -q DON-1500_Map_Converter_Prototype.zip -d source
-          SETTINGS="$(find source -name settings.gradle -o -name settings.gradle.kts | head -n 1)"
-          if [ -z "$SETTINGS" ]; then
-            echo "::error::settings.gradle was not found in the ZIP"
-            find source -maxdepth 4 -type f | head -n 100
+          ZIP_FILE="$(find . -type f -iname 'DON-1500_Map_Converter_Prototype.zip' -print -quit)"
+
+          if [ -z "$ZIP_FILE" ]; then
+            ZIP_FILE="$(find . -type f -iname '*.zip' -print -quit)"
+          fi
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "::error::No ZIP archive found in repository."
             exit 1
           fi
+
+          echo "Using archive: $ZIP_FILE"
+          unzip -t "$ZIP_FILE"
+          mkdir -p source
+          unzip -q "$ZIP_FILE" -d source
+
+          SETTINGS="$(find source -type f \( -name settings.gradle -o -name settings.gradle.kts \) -print -quit)"
+
+          if [ -z "$SETTINGS" ]; then
+            echo "::error::Android project not found inside ZIP."
+            find source -maxdepth 4 -type f | head -100
+            exit 1
+          fi
+
           PROJECT_DIR="$(dirname "$SETTINGS")"
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Found project: $PROJECT_DIR"
-          test -f "$PROJECT_DIR/app/build.gradle" -o -f "$PROJECT_DIR/app/build.gradle.kts"
+
+          if [ ! -f "$PROJECT_DIR/gradlew" ]; then
+            echo "::error::gradlew is missing from the Android project."
+            exit 1
+          fi
+
+          echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -58,21 +68,15 @@ jobs:
         uses: android-actions/setup-android@v3
 
       - name: Build APK
-        working-directory: ${{ env.PROJECT_DIR }}
+        working-directory: ${{ github.workspace }}/${{ steps.extract.outputs.project_dir }}
         run: |
-          chmod +x gradlew 2>/dev/null || true
-          if [ -f gradlew ]; then
-            ./gradlew --no-daemon assembleDebug
-          else
-            echo "::error::Gradle wrapper gradlew is missing from the project ZIP"
-            exit 1
-          fi
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug
 
       - name: Upload APK
-        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: DON-1500-Map-Converter-APK
-          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk
+          path: ${{ github.workspace }}/${{ steps.extract.outputs.project_dir }}/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           
