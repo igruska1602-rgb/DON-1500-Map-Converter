@@ -16,6 +16,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
 
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -33,7 +37,7 @@ jobs:
           fi
 
           if [ -z "$ZIP_FILE" ]; then
-            echo "::error::Converter ZIP not found in repository."
+            echo "::error::Converter ZIP not found. Upload it to the repository."
             exit 1
           fi
 
@@ -46,14 +50,14 @@ jobs:
           SETTINGS="$(find "$RUNNER_TEMP/don1500-project" -type f \( -name settings.gradle -o -name settings.gradle.kts \) -print -quit)"
 
           if [ -z "$SETTINGS" ]; then
-            echo "::error::settings.gradle was not found inside the ZIP."
+            echo "::error::settings.gradle not found inside ZIP."
             exit 1
           fi
 
           PROJECT_DIR="$(dirname "$SETTINGS")"
 
           if [ ! -f "$PROJECT_DIR/app/build.gradle" ] && [ ! -f "$PROJECT_DIR/app/build.gradle.kts" ]; then
-            echo "::error::app/build.gradle was not found."
+            echo "::error::app/build.gradle not found."
             exit 1
           fi
 
@@ -65,33 +69,41 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Accept Android SDK licenses
+      - name: Prepare Android SDK
         shell: bash
         run: |
           set -euo pipefail
-          yes | sdkmanager --licenses || true
 
-      - name: Install Android SDK packages
-        shell: bash
-        run: |
-          set -euo pipefail
-          sdkmanager --install \
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager -print -quit)"
+          fi
+
+          if [ -z "${SDKMANAGER:-}" ] || [ ! -x "$SDKMANAGER" ]; then
+            echo "::error::Android sdkmanager not found."
+            exit 1
+          fi
+
+          echo "Using sdkmanager: $SDKMANAGER"
+
+          yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses || true
+
+          "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --install \
+            "platform-tools" \
             "platforms;android-35" \
-            "build-tools;35.0.0" \
-            "platform-tools"
+            "build-tools;35.0.0"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
 
-      - name: Build APK
+      - name: Build Android APK
         working-directory: ${{ steps.project.outputs.dir }}
         shell: bash
-        run: gradle --no-daemon --stacktrace assembleDebug
+        run: |
+          gradle --no-daemon --stacktrace assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
