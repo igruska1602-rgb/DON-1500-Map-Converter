@@ -5,11 +5,21 @@ on:
     branches: [ main, master ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Unzip project if it was uploaded as a ZIP
+        run: |
+          if [ -z "$(find . -name settings.gradle.kts -not -path './.git/*')" ]; then
+            z=$(find . -name '*.zip' -not -path './.git/*' | head -1)
+            if [ -n "$z" ]; then echo "Unzipping $z"; mkdir -p _src && unzip -q -o "$z" -d _src; fi
+          fi
 
       - name: Find project folder
         id: p
@@ -45,3 +55,10 @@ jobs:
         with:
           name: DON1500-Converter-debug-apk
           path: ${{ steps.p.outputs.dir }}/app/build/outputs/apk/debug/*.apk
+
+      - name: Publish APK to Releases (direct download)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: DON-1500 Converter build ${{ github.run_number }}
+          files: ${{ steps.p.outputs.dir }}/app/build/outputs/apk/debug/*.apk
