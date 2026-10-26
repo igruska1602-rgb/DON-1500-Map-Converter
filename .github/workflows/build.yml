@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     paths:
-      - 'DON1500_Converter_V3.zip'
+      - 'DON1500_Converter_V4.zip'
       - '.github/workflows/build.yml'
 
 permissions:
@@ -13,9 +13,6 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      ANDROID_HOME: /usr/local/lib/android/sdk
-      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -24,34 +21,23 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Install Android SDK packages
-        shell: bash
-        run: |
-          set -euo pipefail
-          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          if [ ! -x "$SDKMANAGER" ]; then
-            SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager -print -quit 2>/dev/null || true)"
-          fi
-          if [ -z "$SDKMANAGER" ] || [ ! -x "$SDKMANAGER" ]; then
-            echo "::error::Android sdkmanager not found"
-            exit 1
-          fi
-          yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses >/dev/null || true
-          "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --install 'platform-tools' 'platforms;android-35' 'build-tools;35.0.0'
-      - name: Set up Gradle 8.9
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+      - name: Install SDK packages
+        run: sdkmanager 'platform-tools' 'platforms;android-35' 'build-tools;35.0.0'
+      - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Verify and extract source project
+      - name: Extract project
         id: project
         shell: bash
         run: |
           set -euo pipefail
-          test -f DON1500_Converter_V3.zip
-          unzip -t DON1500_Converter_V3.zip
-          mkdir -p "$RUNNER_TEMP/don1500-source"
-          unzip -q DON1500_Converter_V3.zip -d "$RUNNER_TEMP/don1500-source"
-          PROJECT_DIR="$(find "$RUNNER_TEMP/don1500-source" -type f -name settings.gradle -printf '%h\n' -quit)"
+          unzip -t DON1500_Converter_V4.zip
+          mkdir -p "$RUNNER_TEMP/don1500-v4"
+          unzip -q DON1500_Converter_V4.zip -d "$RUNNER_TEMP/don1500-v4"
+          PROJECT_DIR="$(find "$RUNNER_TEMP/don1500-v4" -type f -name settings.gradle -printf '%h\n' -quit)"
           test -n "$PROJECT_DIR"
           test -f "$PROJECT_DIR/app/build.gradle"
           echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
@@ -61,6 +47,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: DON-1500-Converter-APK
+          name: DON-1500-Converter-V4-APK
           path: ${{ steps.project.outputs.dir }}/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
