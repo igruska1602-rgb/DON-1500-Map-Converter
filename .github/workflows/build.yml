@@ -49,7 +49,16 @@ jobs:
 
       - name: Build debug APK
         working-directory: ${{ steps.p.outputs.dir }}
-        run: gradle assembleDebug --no-daemon --stacktrace
+        run: |
+          set -o pipefail
+          gradle assembleDebug --no-daemon --stacktrace 2>&1 | tee /tmp/build-log.txt
+
+      - name: Upload full build log (always, even on failure)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: /tmp/build-log.txt
 
       - uses: actions/upload-artifact@v4
         with:
